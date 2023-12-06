@@ -1,0 +1,126 @@
+---
+title: "Survival Analysis HW2"
+author: "Kush Patel"
+date: "2023-11-10"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+# Load libraries
+library(tidyverse)
+library(survival)
+```
+
+```{r}
+# Read CSV
+#hurricane <- read.csv("hurricane.csv")
+hurricane <- read.csv("https://raw.githubusercontent.com/sjsimmo2/Survival/master/hurricane.csv")
+# Add ID variable
+hurricane$id <- seq.int(nrow(hurricane))
+
+# Create motor variable, censoring all other reasons
+hurricane <- hurricane %>% mutate(motor = ifelse(reason == 2, 1, 0))
+
+# Remove reason, reason2, and survive
+hurricane <- hurricane %>% select(-reason, -reason2, -survive)
+```
+
+```{r}
+# Check out variables
+summary(hurricane)
+```
+
+Age, Elevation, Slope are continuous
+
+Bunch of missing values in H variables
+
+```{r}
+# Create list for all status vars
+status_vars <- c()
+
+for (i in 1:48) {
+  status_vars <- append(status_vars, paste("h", i, sep = ""))
+}
+```
+
+```{r}
+# Make dataframe from wide to long
+hurricane_long <- hurricane %>% pivot_longer(cols = status_vars, names_to = "status_hour", values_to = "status")
+
+# Make status hour numeric
+hurricane_long <- hurricane_long %>% mutate(status_hour = as.numeric(str_remove(status_hour, "h")))
+
+# Only keep values where status_hour is strictly less than hour
+hurricane_long <- hurricane_long %>% filter(status_hour <= hour)
+
+# Check results
+summary(hurricane_long)
+```
+
+3971 missing values, we'll fill them based on the previous value, after grouping by ID
+
+```{r}
+# Fill in missing values
+hurricane_long <- hurricane_long %>% group_by(id) %>% fill(status, .direction = "down")
+
+# Check if it worked
+summary(hurricane_long)
+```
+
+No more missing values
+
+```{r}
+# Export to process in Python
+write.csv(hurricane_long, "hurricane_long.csv", row.names = FALSE)
+```
+
+# Python Happens
+
+```{r}
+# Read prepped CSV
+hurricane_prepped <- read.csv("hurricane_prepped.csv")
+```
+
+```{r}
+# Ensure number of motor failures is same as original
+
+hurricane %>% filter(motor == 1) %>% nrow()
+hurricane_prepped %>% filter(motor == 1) %>% nrow()
+```
+
+```{r}
+# Test linearity assumptions of continuous variables
+motor.ph.cont <- coxph(Surv(start, stop, motor) ~ age + elevation + slope, data = hurricane_prepped)
+
+survminer::ggcoxfunctional(motor.ph.cont, data = hurricane_prepped)
+```
+
+```{r}
+# Running full Cox PH model
+motor.ph.full <- coxph(Surv(start, stop, motor) ~ age + backup + bridgecrane + elevation + gear + servo + slope + trashrack + running_long, data = hurricane_prepped)
+
+summary(motor.ph.full)
+```
+
+```{r}
+# Running Cox PH model
+motor.ph.full2 <- coxph(Surv(start, stop, motor) ~ age + backup + bridgecrane + elevation + gear + servo + slope + running_long + cluster(id), data = hurricane_prepped)
+
+summary(motor.ph.full2)
+
+```
+```{r}
+motor.ph.3<- coxph(Surv(start, stop, motor==1) ~ age + slope + cluster(id), data = hurricane_prepped)
+
+summary(motor.ph.3)
+```
+
+
+```{r}
+motor.ph.4<- coxph(Surv(start, stop, motor) ~ age + slope, data = hurricane_prepped)
+
+summary(motor.ph.4)
+```
+
